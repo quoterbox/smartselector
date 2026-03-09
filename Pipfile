@@ -1,0 +1,9 @@
+[requires]
+python_version = "3.12"
+
+[packages]
+lxml = "*"
+cssselect = "*"
+
+[dev-packages]
+pytest = "*"
