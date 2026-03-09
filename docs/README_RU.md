@@ -1,11 +1,11 @@
-# Smart Selector: Документация (RU)
+# Smart Selector: Documentation (RU)
 
-Основная документация на английском находится в `README.md`.
+Main documentation in English is in `README.md`.
 
 ## Обзор
 Smart Selector — библиотека на Python для построения устойчивых XPath/CSS селекторов по:
 - HTML-странице,
-- абсолютному XPath целевого элемента.
+- XPath целевого элемента (абсолютному или вручную написанному).
 
 Поддерживает два режима:
 1. **Single element mode**: подбор селекторов для одного поля.
@@ -27,17 +27,14 @@ pipenv install --dev
 from pathlib import Path
 from smart_selector import build_selectors
 
-html = Path("html_examples/ozon.html").read_text(encoding="utf-8")
-abs_xpath = "/html/body/.../span"
+html = Path("html_examples/amazon.html").read_text(encoding="utf-8", errors="ignore")
+abs_xpath = "/html/body/..."
 
 result = build_selectors(html, abs_xpath)
 
 print(result.best_xpath)
 print(result.best_css)
 print(result.variants[:5])
-print(result.xpath_variants[:3])
-print(result.css_variants[:3])
-print(result.variants_with_text[:3])
 ```
 
 ### Каталог/список по двум соседям
@@ -71,6 +68,101 @@ print(collection.estimated_count)
 - `build_collection_selector(html, first_absolute_xpath, second_absolute_xpath, config=None) -> CollectionSelectorResult`
 - `analyze_collection_selector(...) -> dict`
 
+## Поток данных
+
+```mermaid
+graph TD
+    A[Input: HTML + XPath или два XPath] --> B[Parse HTML with lxml]
+    B --> C{Mode}
+
+    C -->|Single element| D[Resolve target node with tolerant fallback]
+    D --> E[Build DOM index and attribute statistics]
+    E --> F[Generate candidate selectors: XPath, CSS, text-based]
+    F --> G[Evaluate candidates: match count and target inclusion]
+    G --> H[Score and rank by stability]
+    H --> I[BuildResult]
+
+    C -->|Collection| J[Resolve two neighboring nodes]
+    J --> K[Find common prefix and divergence point]
+    K --> L[Build collection selectors and index templates]
+    L --> M[Estimate collection size]
+    M --> N[CollectionSelectorResult]
+```
+
+## Примеры
+
+### 1. Абсолютный XPath из браузера
+```python
+from pathlib import Path
+from smart_selector import build_selectors
+
+html = Path("html_examples/amazon.html").read_text(encoding="utf-8", errors="ignore")
+abs_xpath = "/html/body/div[1]/header/div/div[1]/div[2]/div/form/div[3]/div/button"
+
+result = build_selectors(html, abs_xpath)
+print(result.best_xpath)
+print(result.best_css)
+```
+
+### 2. Вручную написанный XPath (не абсолютный)
+```python
+from pathlib import Path
+from smart_selector import build_selectors
+
+html = Path("html_examples/habr.html").read_text(encoding="utf-8", errors="ignore")
+manual_xpath = "//h1[normalize-space()='Моя лента']"
+
+result = build_selectors(html, manual_xpath)
+print(result.target_found)
+print(result.best_xpath)
+```
+
+### 3. Только лучшие XPath/CSS варианты
+```python
+from pathlib import Path
+from lxml import html as lxml_html
+from smart_selector import SelectorConfig, build_xpath_variants, build_css_variants
+
+html = Path("html_examples/reddit.html").read_text(encoding="utf-8", errors="ignore")
+doc = lxml_html.fromstring(html)
+abs_xpath = doc.getroottree().getpath(doc.xpath("//*[@id='main-content']")[0])
+
+cfg = SelectorConfig(max_variants=8)
+print(build_xpath_variants(html, abs_xpath, config=cfg)[:3])
+print(build_css_variants(html, abs_xpath, config=cfg)[:3])
+```
+
+### 4. Текстовые селекторы для стабильных лейблов
+```python
+from pathlib import Path
+from smart_selector import build_text_variants
+
+html = Path("html_examples/ozon.html").read_text(encoding="utf-8", errors="ignore")
+variants = build_text_variants(html, "//a[normalize-space()='Электроника']")
+
+for variant in variants[:5]:
+    print(variant.selector, variant.score)
+```
+
+### 5. Групповой селектор каталога + шаблон итерации
+```python
+from pathlib import Path
+from smart_selector import build_collection_selector
+
+html = Path("html_examples/worldcoinindex.html").read_text(encoding="utf-8", errors="ignore")
+
+collection = build_collection_selector(
+    html,
+    first_absolute_xpath="(//table[@id='myTable']//tbody/tr)[1]",
+    second_absolute_xpath="(//table[@id='myTable']//tbody/tr)[2]",
+)
+
+print(collection.collection_xpath)
+print(collection.item_xpath_template)
+for i in range(1, 6):
+    print(collection.item_xpath_template.format(i=i))
+```
+
 ## Что возвращается
 
 ### BuildResult
@@ -93,7 +185,7 @@ print(collection.estimated_count)
 
 ### Одиночный элемент
 1. Парсинг HTML (`lxml`).
-2. Резолв target по absolute XPath (с tolerant fallback).
+2. Резолв target по XPath (с tolerant fallback).
 3. Генерация кандидатов XPath/CSS разными стратегиями.
 4. Валидация каждого кандидата (match count + попадание в target).
 5. Скоринг и сортировка.

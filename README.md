@@ -77,6 +77,27 @@ print(collection.estimated_count)
 - `build_collection_selector(html, first_absolute_xpath, second_absolute_xpath, config=None) -> CollectionSelectorResult`
 - `analyze_collection_selector(...) -> dict`
 
+## Data Flow
+
+```mermaid
+graph TD
+    A[Input: HTML + XPath or two XPaths] --> B[Parse HTML with lxml]
+    B --> C{Mode}
+
+    C -->|Single element| D[Resolve target node with tolerant fallback]
+    D --> E[Build DOM index and attribute statistics]
+    E --> F[Generate candidate selectors: XPath, CSS, text-based]
+    F --> G[Evaluate candidates: match count and target inclusion]
+    G --> H[Score and rank by stability]
+    H --> I[BuildResult: mixed, XPath-only, CSS-only, text-based]
+
+    C -->|Collection| J[Resolve two neighboring nodes]
+    J --> K[Find common prefix and divergence point]
+    K --> L[Build collection selectors and index templates]
+    L --> M[Estimate collection size]
+    M --> N[CollectionSelectorResult]
+```
+
 ## How It Works
 
 ### Single element pipeline
@@ -110,6 +131,85 @@ print(collection.estimated_count)
 - index-based item templates (`{i}`).
 5. Try to shorten with stable ancestor anchors (`id`, `data-*`, class).
 6. Estimate item count from resulting collection XPath.
+
+## Examples
+
+### 1. Use browser-copied absolute XPath
+```python
+from pathlib import Path
+from smart_selector import build_selectors
+
+html = Path("html_examples/amazon.html").read_text(encoding="utf-8", errors="ignore")
+abs_xpath = "/html/body/div[1]/header/div/div[1]/div[2]/div/form/div[3]/div/button"
+
+result = build_selectors(html, abs_xpath)
+print(result.best_xpath)
+print(result.best_css)
+```
+
+### 2. Pass a manually written XPath (non-absolute)
+```python
+from pathlib import Path
+from smart_selector import build_selectors
+
+html = Path("html_examples/habr.html").read_text(encoding="utf-8", errors="ignore")
+manual_xpath = "//h1[normalize-space()='Моя лента']"
+
+result = build_selectors(html, manual_xpath)
+print(result.target_found)
+print(result.best_xpath)
+```
+
+### 3. Get per-type top candidates only (XPath/CSS)
+```python
+from pathlib import Path
+from lxml import html as lxml_html
+from smart_selector import SelectorConfig, build_css_variants, build_xpath_variants
+
+html = Path("html_examples/reddit.html").read_text(encoding="utf-8", errors="ignore")
+doc = lxml_html.fromstring(html)
+abs_xpath = doc.getroottree().getpath(doc.xpath("//*[@id='main-content']")[0])
+
+config = SelectorConfig(max_variants=8)
+top_xpath = build_xpath_variants(html, abs_xpath, config=config)[:3]
+top_css = build_css_variants(html, abs_xpath, config=config)[:3]
+
+print(top_xpath)
+print(top_css)
+```
+
+### 4. Request text-based selectors for stable labels
+```python
+from pathlib import Path
+from smart_selector import build_text_variants
+
+html = Path("html_examples/ozon.html").read_text(encoding="utf-8", errors="ignore")
+xpath = "//a[normalize-space()='Электроника']"
+
+text_variants = build_text_variants(html, xpath)
+for variant in text_variants[:5]:
+    print(variant.selector, variant.score)
+```
+
+### 5. Build a collection selector and iterate items by index
+```python
+from pathlib import Path
+from smart_selector import build_collection_selector
+
+html = Path("html_examples/worldcoinindex.html").read_text(encoding="utf-8", errors="ignore")
+
+collection = build_collection_selector(
+    html,
+    first_absolute_xpath="(//table[@id='myTable']//tbody/tr)[1]",
+    second_absolute_xpath="(//table[@id='myTable']//tbody/tr)[2]",
+)
+
+print(collection.collection_xpath)
+print(collection.item_xpath_template)
+
+for i in range(1, 6):
+    print(collection.item_xpath_template.format(i=i))
+```
 
 ## Result Models
 
@@ -180,3 +280,8 @@ tests/
 - Heavily obfuscated dynamic classes can reduce CSS selector quality.
 - Text-based selectors can be sensitive to localization and A/B experiments.
 
+## LICENSE
+[MIT License](./LICENSE.md)
+
+## Author
+[JQ/Quoterbox](https://github.com/quoterbox)
